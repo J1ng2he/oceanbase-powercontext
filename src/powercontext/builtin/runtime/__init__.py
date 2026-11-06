@@ -98,6 +98,13 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
+from powercontext.builtin.runtime.context_pack import (
+    CONTEXT_PACK_DELTA_SCHEMA,
+    CONTEXT_PACK_SCHEMA,
+    ContextPack,
+    ContextPackDelta,
+    ContextPackError,
+)
 from powercontext.builtin.runtime.decision_model import (
     DecisionKind,
     DecisionModel,
@@ -223,6 +230,8 @@ __all__ = [
     "BuiltinConfig",
     "BuiltinConfigurationError",
     "BuiltinRuntime",
+    "CONTEXT_PACK_DELTA_SCHEMA",
+    "CONTEXT_PACK_SCHEMA",
     "CachedReadinessProbe",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
@@ -231,6 +240,9 @@ __all__ = [
     "ConnectorCheckpointState",
     "ContextAssembly",
     "ContextAssemblySection",
+    "ContextPack",
+    "ContextPackDelta",
+    "ContextPackError",
     "CreateDreamRunRequest",
     "DatabaseConfig",
     "DecisionKind",

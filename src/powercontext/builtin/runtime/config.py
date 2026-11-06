@@ -211,6 +211,11 @@ class RuntimeConfig(BaseModel):
     topic_memory_history_max_candidates: int = Field(default=20, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
     topic_memory_history_rrf_threshold: int = Field(default=70, ge=0, le=100)
     topic_memory_history_min_candidates: int = Field(default=5, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
+    # A busy Scope starts processing as soon as this many new Source entries
+    # wait behind its cursor. None keeps the count condition disabled and
+    # leaves the time condition in charge.
+    memory_source_count_threshold: int | None = Field(default=None, gt=0)
+    topic_memory_source_count_threshold: int | None = Field(default=None, gt=0)
     artifact_processing_max_workers: int = Field(default=10, ge=1)
     artifact_processing_worker_timeout_seconds: float = Field(default=600, gt=0)
     artifact_processing_role: Literal["all", "api", "background"] = "all"
@@ -229,6 +234,19 @@ class RuntimeConfig(BaseModel):
     model_usage_queue_capacity: int = Field(default=256, ge=1, le=16_384)
     model_usage_write_timeout_seconds: float = Field(default=1.0, gt=0, le=30)
     model_usage_flush_timeout_seconds: float = Field(default=0.5, gt=0, le=30)
+
+    @field_validator(
+        "memory_source_count_threshold",
+        "topic_memory_source_count_threshold",
+        mode="before",
+    )
+    @classmethod
+    def reject_non_integer_count_threshold(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("Source count threshold must be a positive integer")  # noqa: TRY003, TRY004
+        return value
 
     @model_validator(mode="after")
     def validate_topic_memory_history_candidates(self) -> RuntimeConfig:

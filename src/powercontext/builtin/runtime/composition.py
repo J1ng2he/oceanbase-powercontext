@@ -140,7 +140,11 @@ from powercontext.builtin.runtime.decision_model import (
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
-from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
+from powercontext.builtin.runtime.processing_discovery import (
+    SourceCountPendingProvider,
+    SourceProcessingPendingProvider,
+    enabled_profile_scopes,
+)
 from powercontext.builtin.runtime.processing_registry import (
     canonical_processing_manifest,
     dream_operations,
@@ -719,6 +723,16 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
         "profile": config.runtime.profile_schedule_enabled or None,
         "skill": None,
     }
+    # A count threshold starts a busy Scope without waiting for the time
+    # condition. It is independent per Scope and per Family, so it never
+    # substitutes another Scope's or another Family's cursor.
+    counts = {
+        "memory": config.runtime.memory_source_count_threshold,
+        "topic-memory": config.runtime.topic_memory_source_count_threshold,
+        "experience": None,
+        "profile": None,
+        "skill": None,
+    }
     for family, schedule in automatic.items():
         if schedule is not None and family not in declared | registered:
             if (
@@ -770,6 +784,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
         else:
             entrypoint = partial(run_family_worker, FamilyWorkerSpec(config=config, worker_security=worker_security))
         interval = None if family == "profile" else automatic[family]
+        threshold = counts[family]
         binding = canonical[family]
         configured.append(
             ArtifactProcessingBinding(
@@ -787,6 +802,10 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 if family == "skill"
                 else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
+                source_count_threshold=threshold,
+                count_provider=None
+                if threshold is None
+                else SourceCountPendingProvider(contexts.database, binding, family),
             )
         )
     _validate_processing_registrations(configured)

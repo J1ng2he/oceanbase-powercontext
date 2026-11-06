@@ -76,6 +76,7 @@ _RETRY_BASE_SECONDS = 30.0
 _RETRY_CAP_SECONDS = 1800.0
 _CONTROL_CONFLICT_RETRY_SECONDS = 0.1
 _DISCOVERY_PAGE_SIZE = 100
+_COUNT_PAGE_SIZE = 100
 _RETRY_STATE_LIMIT = 1000
 _CHANNEL_QUEUE_LIMIT = _DISCOVERY_PAGE_SIZE // 2
 _DISCOVERY_PAGE_DELAY_SECONDS = 0.01
@@ -100,6 +101,21 @@ class ArtifactProcessingPendingProvider(Protocol):
         ...
 
 
+class ArtifactProcessingCountProvider(Protocol):
+    """Report the Scopes whose pending Source count reached a threshold."""
+
+    async def over_threshold(
+        self,
+        connection: AsyncConnection,
+        threshold: int,
+        *,
+        after_scope_id: str | None = None,
+        limit: int = 100,
+    ) -> tuple[str | None, frozenset[str]]:
+        """Return the next keyset position and the Scopes at or above the threshold."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactProcessingBinding:
     """Startup registration of one Family and its independently budgeted Worker."""
@@ -117,6 +133,11 @@ class ArtifactProcessingBinding:
     # Only automatic admission is filtered; already accepted requests retain
     # their own Worker authorization and domain completion semantics.
     automatic_scope_filter: Callable[[AsyncConnection, tuple[str, ...]], Awaitable[frozenset[str]]] | None = None
+    # A busy Scope starts without waiting for the time condition once this many
+    # new Source entries wait behind its own cursor. None keeps the count
+    # condition disabled.
+    source_count_threshold: int | None = None
+    count_provider: ArtifactProcessingCountProvider | None = None
 
     def __post_init__(self) -> None:
         if not self.binding_name or self.binding_name != self.binding_name.strip():
@@ -138,6 +159,11 @@ class ArtifactProcessingBinding:
                 raise ValueError("interval and cron cannot both be enabled")  # noqa: TRY003
         if self.cron is not None:
             CronTrigger.from_crontab(self.cron, timezone=ZoneInfo(self.timezone))
+        if self.source_count_threshold is not None:
+            if type(self.source_count_threshold) is not int or self.source_count_threshold < 1:
+                raise ValueError("source_count_threshold must be a positive integer")  # noqa: TRY003
+            if self.count_provider is None:
+                raise ValueError("source_count_threshold requires a count_provider")  # noqa: TRY003
 
 
 class _WorkerResultSender(Protocol):
@@ -397,6 +423,7 @@ class _FamilyState:
     scan_in_progress: bool = False
     reconcile_after: str | None = None
     reconcile_complete: bool = False
+    count_after: str | None = None
     notification_at_start: int = 0
     discovery_pending: bool = True
     next_schedule_at: float | None = None
@@ -648,6 +675,9 @@ class ArtifactProcessingSupervisor:
                 state.next_discovery_at = loop.time() + _DISCOVERY_PAGE_DELAY_SECONDS
         else:
             state.reconcile_complete = True
+        # The count condition is independent of the time condition: either one
+        # admits the Scope on its own.
+        await self._discover_count(state)
         # Alternate discovery channels so explicit traffic cannot monopolize admission.
         state.automatic_next = not state.automatic_next
         if state.automatic_next:
@@ -656,6 +686,52 @@ class ArtifactProcessingSupervisor:
         else:
             await self._discover_requested(state)
             await self._discover_automatic(state)
+
+    async def _discover_count(self, state: _FamilyState) -> None:
+        """Accept one invocation for every Scope whose pending count reached the threshold.
+
+        The count follows persisted Source identities behind this processor's
+        own cursor, so a repeated capture and a trusted receipt upgrade add
+        nothing. A Scope that already owns an accepted invocation keeps it: a
+        failed call is retried by its own rules and never dropped here.
+        """
+
+        binding = state.binding
+        threshold = binding.source_count_threshold
+        provider = binding.count_provider
+        if threshold is None or provider is None:
+            return
+        capacity = self._fresh_capacity(state)
+        if capacity <= 0:
+            return
+        admitted: list[str] = []
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            next_after, candidates = await provider.over_threshold(
+                connection,
+                threshold,
+                after_scope_id=state.count_after,
+                limit=_COUNT_PAGE_SIZE,
+            )
+            for scope in sorted(candidates):
+                if len(admitted) >= capacity:
+                    break
+                if scope in state.queued or scope in state.running or scope in state.retries:
+                    continue
+                intent = await self._intents.load(connection, scope, binding.binding_name, for_update=True)
+                if intent is None:
+                    continue
+                if intent.requested_generation > intent.handled_generation:
+                    continue
+                if intent.dirty_generation <= intent.clean_generation:
+                    continue
+                await self._intents.request(connection, scope, binding.binding_name)
+                admitted.append(scope)
+        # A finished page restarts the sweep, so a Scope that fell back below
+        # the threshold is re-examined as soon as new entries arrive.
+        state.count_after = next_after
+        for scope in admitted:
+            self._enqueue(state, scope)
 
     async def _discover_requested(self, state: _FamilyState) -> None:
         capacity = self._fresh_capacity(state)
@@ -1083,6 +1159,11 @@ class ArtifactProcessingSupervisor:
         for state in self._families.values():
             if len(state.running) >= state.binding.max_workers:
                 continue
+            if state.binding.source_count_threshold is not None:
+                # A count condition has no deadline of its own, so the
+                # Supervisor polls for it instead of sleeping until the next
+                # scheduled scan.
+                deadlines.append(now + self._tick)
             deadlines.extend(
                 retry.deadline
                 for scope, retry in state.retries.items()

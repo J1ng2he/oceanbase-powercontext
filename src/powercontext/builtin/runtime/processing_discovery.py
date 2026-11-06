@@ -74,3 +74,47 @@ class SourceProcessingPendingProvider:
                 if intent is None or intent.dirty_generation == intent.clean_generation:
                     await intents.mark_dirty(connection, scope, self._binding)
         return str(rows[-1][0]) if len(rows) == limit else None
+
+
+class SourceCountPendingProvider:
+    """Report the Scopes whose pending Source count reached a threshold.
+
+    The count is the number of journal entries published after this
+    processor's last committed cursor, so it follows persisted Source
+    identities rather than body length or generated output. A repeated
+    capture keeps its identity and adds no entry, so it adds no count.
+    """
+
+    def __init__(self, database: AsyncDatabase, binding_name: str, artifact_family: str) -> None:
+        self._database = database
+        self._binding = binding_name
+        self._family = artifact_family
+
+    async def over_threshold(
+        self,
+        connection: AsyncConnection,
+        threshold: int,
+        *,
+        after_scope_id: str | None = None,
+        limit: int = 100,
+    ) -> tuple[str | None, frozenset[str]]:
+        """Return the next keyset position and the Scopes at or above the threshold."""
+
+        if type(threshold) is not int or threshold < 1:
+            raise ValueError("threshold must be a positive integer")  # noqa: TRY003
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")  # noqa: TRY003
+        heads = SOURCE_JOURNAL_HEADS_TABLE
+        statement = select(heads.c.scope_id, heads.c.position).order_by(heads.c.scope_id).limit(limit)
+        if after_scope_id is not None:
+            statement = statement.where(heads.c.scope_id > after_scope_id)
+        rows = (await connection.execute(statement)).all()
+        scopes = tuple(str(row[0]) for row in rows)
+        cursors = await SourceCursorRepository().load_many(connection, scopes, self._binding)
+        pending: set[str] = set()
+        for scope, high in rows:
+            cursor = cursors.get(str(scope))
+            sequence = 0 if cursor is None else cursor.cursor.sequence
+            if int(high) - sequence >= threshold:
+                pending.add(str(scope))
+        return (str(rows[-1][0]) if len(rows) == limit else None), frozenset(pending)

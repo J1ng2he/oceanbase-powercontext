@@ -166,6 +166,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.context_pack import ContextPack, ContextPackDelta
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
@@ -846,6 +847,29 @@ class ScopedContextApplication:
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             return await self._prepare(request, scope)
+
+    async def prepare_incremental(
+        self,
+        request: PrepareContextRequest,
+        /,
+        base_pack: ContextPack | None = None,
+        *,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> ContextPack | ContextPackDelta:
+        """Prepare the same context, then describe it as a Pack or a Delta.
+
+        The prepared body is identical to :meth:`prepare`. Without a base the
+        caller receives the complete Pack; with one it receives the Delta that
+        turns that base into this round's Pack, so a receiver holding the base
+        can rebuild this body from serialized bytes alone.
+        """
+
+        prepared = await self.prepare(request, authorize_scopes=authorize_scopes)
+        content = prepared.content
+        target = ContextPack.build(()) if content is None else ContextPack.from_content(content)
+        if base_pack is None:
+            return target
+        return ContextPackDelta.between(base_pack, target)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         build, effort = await self._prepare_build(request, scope)
