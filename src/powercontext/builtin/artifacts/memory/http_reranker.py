@@ -86,10 +86,7 @@ class HTTPMemoryReranker:
         """Split the pool into batches that keep the original rank."""
 
         entries = tuple(enumerate(candidates, start=1))
-        return tuple(
-            entries[index : index + self._batch_size]
-            for index in range(0, len(entries), self._batch_size)
-        )
+        return tuple(entries[index : index + self._batch_size] for index in range(0, len(entries), self._batch_size))
 
     async def _score_batch(
         self,
@@ -109,7 +106,7 @@ class HTTPMemoryReranker:
             raise ValueError("the rerank response must contain exactly the scores")  # noqa: TRY003
         records = body[_HTTP_RERANK_SCORES_KEY]
         if not isinstance(records, list):
-            raise ValueError("the rerank scores must be a list")  # noqa: TRY003
+            raise ValueError("the rerank scores must be a list")  # noqa: TRY003, TRY004
 
         expected = {rank for rank, _hit in batch}
         scores: dict[int, float] = {}
@@ -131,7 +128,7 @@ def _finite_score(value: Any) -> float:
     """Accept a finite number only, a NaN or an infinity is not a score."""
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("a rerank score must be a number")  # noqa: TRY003
+        raise ValueError("a rerank score must be a number")  # noqa: TRY003, TRY004
     score = float(value)
     if not math.isfinite(score):
         raise ValueError("a rerank score must be a finite number")  # noqa: TRY003

@@ -142,11 +142,11 @@ def _decode(content: bytes) -> str:
     """Decode the document as strict UTF-8 and accept a leading BOM."""
 
     if not isinstance(content, bytes):
-        raise ValueError("the content of a CSV document must be bytes")  # noqa: TRY003
+        raise ValueError("the content of a CSV document must be bytes")  # noqa: TRY003, TRY004
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise ValueError("the CSV document is not valid UTF-8") from error
+        raise ValueError("the CSV document is not valid UTF-8") from error  # noqa: TRY003
     if text.startswith("\ufeff"):
         text = text[1:]
     return text
@@ -158,7 +158,7 @@ def _read_records(text: str) -> list[list[str]]:
     try:
         return list(csv.reader(io.StringIO(text, newline=""), strict=True))
     except csv.Error as error:
-        raise ValueError(f"the CSV document is malformed: {error}") from error
+        raise ValueError(f"the CSV document is malformed: {error}") from error  # noqa: TRY003
 
 
 def _header(record: list[str]) -> tuple[str, ...]:

@@ -116,6 +116,28 @@ class ArtifactProcessingCountProvider(Protocol):
         ...
 
 
+def _validate_schedule(interval: timedelta | None, cron: str | None) -> None:
+    """Reject a time condition that cannot be evaluated."""
+
+    if interval is None:
+        return
+    if interval.total_seconds() <= 0:
+        raise ValueError("automatic interval must be positive")  # noqa: TRY003
+    if cron is not None:
+        raise ValueError("interval and cron cannot both be enabled")  # noqa: TRY003
+
+
+def _validate_count_threshold(threshold: int | None, count_provider: ArtifactProcessingCountProvider | None) -> None:
+    """Reject a count condition that cannot be evaluated."""
+
+    if threshold is None:
+        return
+    if type(threshold) is not int or threshold < 1:
+        raise ValueError("source_count_threshold must be a positive integer")  # noqa: TRY003
+    if count_provider is None:
+        raise ValueError("source_count_threshold requires a count_provider")  # noqa: TRY003
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactProcessingBinding:
     """Startup registration of one Family and its independently budgeted Worker."""
@@ -152,18 +174,10 @@ class ArtifactProcessingBinding:
             raise ValueError("max_workers must be a positive integer")  # noqa: TRY003
         if self.worker_timeout_seconds <= 0:
             raise ValueError("worker_timeout_seconds must be positive")  # noqa: TRY003
-        if self.automatic_processing_interval is not None:
-            if self.automatic_processing_interval.total_seconds() <= 0:
-                raise ValueError("automatic interval must be positive")  # noqa: TRY003
-            if self.cron is not None:
-                raise ValueError("interval and cron cannot both be enabled")  # noqa: TRY003
+        _validate_schedule(self.automatic_processing_interval, self.cron)
         if self.cron is not None:
             CronTrigger.from_crontab(self.cron, timezone=ZoneInfo(self.timezone))
-        if self.source_count_threshold is not None:
-            if type(self.source_count_threshold) is not int or self.source_count_threshold < 1:
-                raise ValueError("source_count_threshold must be a positive integer")  # noqa: TRY003
-            if self.count_provider is None:
-                raise ValueError("source_count_threshold requires a count_provider")  # noqa: TRY003
+        _validate_count_threshold(self.source_count_threshold, self.count_provider)
 
 
 class _WorkerResultSender(Protocol):

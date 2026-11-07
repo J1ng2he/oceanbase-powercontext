@@ -217,6 +217,8 @@ from powercontext.builtin.statistics import (
 )
 
 __all__ = [
+    "CONTEXT_PACK_DELTA_SCHEMA",
+    "CONTEXT_PACK_SCHEMA",
     "ActivateHandoff",
     "ApproveArtifactCandidateRequest",
     "ArtifactInventoryStatistics",
@@ -230,8 +232,6 @@ __all__ = [
     "BuiltinConfig",
     "BuiltinConfigurationError",
     "BuiltinRuntime",
-    "CONTEXT_PACK_DELTA_SCHEMA",
-    "CONTEXT_PACK_SCHEMA",
     "CachedReadinessProbe",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",

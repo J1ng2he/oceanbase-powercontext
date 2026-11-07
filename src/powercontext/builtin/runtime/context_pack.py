@@ -67,15 +67,15 @@ class ContextPack:
         """
 
         if type(chunk_bytes) is not int or chunk_bytes < 1:
-            raise ContextPackError("chunk_bytes must be a positive integer")
+            raise ContextPackError("chunk_bytes must be a positive integer")  # noqa: TRY003
         if not isinstance(content, str):
-            raise ContextPackError("content must be text")
+            raise ContextPackError("content must be text")  # noqa: TRY003
         chunks: list[bytes] = []
         current = bytearray()
         for character in content:
             encoded = character.encode("utf-8")
             if len(encoded) > chunk_bytes:
-                raise ContextPackError("a character does not fit the chunk limit")
+                raise ContextPackError("a character does not fit the chunk limit")  # noqa: TRY003
             if len(current) + len(encoded) > chunk_bytes:
                 chunks.append(bytes(current))
                 current = bytearray()
@@ -100,7 +100,7 @@ class ContextPack:
             if len(data) == count:
                 return data
             count = len(data)
-        raise ContextPackError("byte_count did not converge")
+        raise ContextPackError("byte_count did not converge")  # noqa: TRY003
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ContextPack:
@@ -108,26 +108,24 @@ class ContextPack:
 
         payload = _decode_object(data)
         if set(payload) != _PACK_FIELDS:
-            raise ContextPackError("a Pack carries exactly schema, items, digest, and byte_count")
+            raise ContextPackError("a Pack carries exactly schema, items, digest, and byte_count")  # noqa: TRY003
         if payload["schema"] != CONTEXT_PACK_SCHEMA:
-            raise ContextPackError("unsupported Pack schema")
+            raise ContextPackError("unsupported Pack schema")  # noqa: TRY003
         items = _decode_items(payload["items"])
         digest = _require_digest(payload["digest"], field="digest")
         if digest != _digest(items):
-            raise ContextPackError("Pack digest does not match its items")
+            raise ContextPackError("Pack digest does not match its items")  # noqa: TRY003
         byte_count = payload["byte_count"]
         if type(byte_count) is not int or byte_count < 0:
-            raise ContextPackError("byte_count must be a non-negative integer")
-        canonical = _canonical(
-            {
-                "schema": CONTEXT_PACK_SCHEMA,
-                "items": _encode_items(items),
-                "digest": digest,
-                "byte_count": byte_count,
-            }
-        )
+            raise ContextPackError("byte_count must be a non-negative integer")  # noqa: TRY003
+        canonical = _canonical({
+            "schema": CONTEXT_PACK_SCHEMA,
+            "items": _encode_items(items),
+            "digest": digest,
+            "byte_count": byte_count,
+        })
         if byte_count != len(canonical):
-            raise ContextPackError("Pack byte count does not match its wire size")
+            raise ContextPackError("Pack byte count does not match its wire size")  # noqa: TRY003
         return cls(items=items, digest=digest)
 
     @property
@@ -179,14 +177,14 @@ class ContextPackDelta:
 
         payload = _decode_object(data)
         if set(payload) != _DELTA_FIELDS:
-            raise ContextPackError("a Delta carries exactly schema, digests, prefix_items, and appended")
+            raise ContextPackError("a Delta carries exactly schema, digests, prefix_items, and appended")  # noqa: TRY003
         if payload["schema"] != CONTEXT_PACK_DELTA_SCHEMA:
-            raise ContextPackError("unsupported Delta schema")
+            raise ContextPackError("unsupported Delta schema")  # noqa: TRY003
         base_digest = _require_digest(payload["base_digest"], field="base_digest")
         target_digest = _require_digest(payload["target_digest"], field="target_digest")
         prefix_items = payload["prefix_items"]
         if type(prefix_items) is not int or prefix_items < 0:
-            raise ContextPackError("prefix_items must be a non-negative integer")
+            raise ContextPackError("prefix_items must be a non-negative integer")  # noqa: TRY003
         return cls(
             base_digest=base_digest,
             target_digest=target_digest,
@@ -205,15 +203,15 @@ def apply_context_pack_delta(base: ContextPack, delta: ContextPackDelta) -> Cont
     """Rebuild the target Pack from a retained base Pack and one Delta."""
 
     if not isinstance(base, ContextPack) or not isinstance(delta, ContextPackDelta):
-        raise ContextPackError("a Delta applies to a Context Pack")
+        raise ContextPackError("a Delta applies to a Context Pack")  # noqa: TRY003
     if delta.base_digest != base.digest:
-        raise ContextPackError("Delta base digest does not match the base Pack")
+        raise ContextPackError("Delta base digest does not match the base Pack")  # noqa: TRY003
     prefix_items = delta.prefix_items
     if type(prefix_items) is not int or prefix_items < 0 or prefix_items > len(base.items):
-        raise ContextPackError("prefix_items is outside the base Pack")
+        raise ContextPackError("prefix_items is outside the base Pack")  # noqa: TRY003
     target = ContextPack.build(base.items[:prefix_items] + tuple(delta.appended))
     if target.digest != delta.target_digest:
-        raise ContextPackError("Delta target digest does not match the rebuilt Pack")
+        raise ContextPackError("Delta target digest does not match the rebuilt Pack")  # noqa: TRY003
     return target
 
 
@@ -232,11 +230,11 @@ def _encode_items(items: tuple[bytes, ...]) -> list[str]:
 
 def _normalize_items(items: Any) -> tuple[bytes, ...]:
     if isinstance(items, (str, bytes, bytearray)):
-        raise ContextPackError("items must be a sequence of byte chunks")
+        raise ContextPackError("items must be a sequence of byte chunks")  # noqa: TRY003
     try:
         candidates = tuple(items)
     except TypeError as error:
-        raise ContextPackError("items must be a sequence of byte chunks") from error
+        raise ContextPackError("items must be a sequence of byte chunks") from error  # noqa: TRY003
     normalized: list[bytes] = []
     for item in candidates:
         if isinstance(item, bytes):
@@ -244,44 +242,44 @@ def _normalize_items(items: Any) -> tuple[bytes, ...]:
         elif isinstance(item, (bytearray, memoryview)):
             normalized.append(bytes(item))
         else:
-            raise ContextPackError("items must contain byte chunks")
+            raise ContextPackError("items must contain byte chunks")  # noqa: TRY003
     return tuple(normalized)
 
 
 def _decode_items(value: Any) -> tuple[bytes, ...]:
     if not isinstance(value, list):
-        raise ContextPackError("items must be a list of Base64 strings")
+        raise ContextPackError("items must be a list of Base64 strings")  # noqa: TRY003
     decoded: list[bytes] = []
     for entry in value:
         if not isinstance(entry, str):
-            raise ContextPackError("items must be a list of Base64 strings")
+            raise ContextPackError("items must be a list of Base64 strings")  # noqa: TRY003
         try:
             item = base64.b64decode(entry, validate=True)
         except (binascii.Error, ValueError) as error:
-            raise ContextPackError("items must contain valid Base64") from error
+            raise ContextPackError("items must contain valid Base64") from error  # noqa: TRY003
         if base64.b64encode(item).decode("ascii") != entry:
-            raise ContextPackError("items must contain canonical Base64")
+            raise ContextPackError("items must contain canonical Base64")  # noqa: TRY003
         decoded.append(item)
     return tuple(decoded)
 
 
 def _require_digest(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or len(value) != _DIGEST_LENGTH or not value.startswith(_DIGEST_PREFIX):
-        raise ContextPackError(f"{field} must be a sha256 digest")
+        raise ContextPackError(f"{field} must be a sha256 digest")  # noqa: TRY003
     if any(character not in "0123456789abcdef" for character in value[len(_DIGEST_PREFIX) :]):
-        raise ContextPackError(f"{field} must be a sha256 digest")
+        raise ContextPackError(f"{field} must be a sha256 digest")  # noqa: TRY003
     return value
 
 
 def _decode_object(data: Any) -> dict[str, Any]:
     if not isinstance(data, (bytes, bytearray, memoryview)):
-        raise ContextPackError("a wire payload must be bytes")
+        raise ContextPackError("a wire payload must be bytes")  # noqa: TRY003
     try:
         payload = json.loads(bytes(data).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ContextPackError("a wire payload must be UTF-8 JSON") from error
+        raise ContextPackError("a wire payload must be UTF-8 JSON") from error  # noqa: TRY003
     if not isinstance(payload, dict):
-        raise ContextPackError("a wire payload must be a JSON object")
+        raise ContextPackError("a wire payload must be a JSON object")  # noqa: TRY003
     return payload
 
 
